@@ -1,25 +1,14 @@
 module.exports = {
-
   development: {
     client: 'pg',
     connection: {
-      host: '192.168.2.22',
+      host: '192.168.171.32',
       port: '5432',
-      user: "postgres",
-      password: "b6PWZ32PQ9WzWZks",
+      user: "dicgp",
+      password: "geofloripa2019",
       database: "geo_fpolis"
     }
   },
-  // development: {
-  //   client: 'pg',
-  //   connection: {
-  //     host: '192.168.171.32',
-  //     port: '5432',
-  //     user: "postgres",
-  //     password: "b6PWZ32PQ9WzWZks",
-  //     database: "geo_fpolis"
-  //   }
-  // },
   production: {
     client: 'postgresql',
     connection: {
