@@ -255,7 +255,7 @@ async function getArrayUsos(codUso, leiMae, numTent) {
 async function getParecer(inscricaoImobiliaria, uso, solicita) {
   var array_ret = [];
   var cont_tmp = 0;
-  
+
   var array_val = await getZonValida(inscricaoImobiliaria);
 
   const { rows: search } = await connection.raw(`
@@ -275,9 +275,8 @@ async function getParecer(inscricaoImobiliaria, uso, solicita) {
       ON public.plan_zon_pd_pri_pdp_join.cd_mslink_zon = public.plan_zon_pd_pri_pdp.mslink
     WHERE 
       ctu.cotr_imobiliario.nu_insc_imbl='${inscricaoImobiliaria}'
-  `)
+  `);
 
-  
   if (search.length > 0) {
     for(row of search) {
       var ret = '';
@@ -569,8 +568,8 @@ async function getParecer(inscricaoImobiliaria, uso, solicita) {
       }
     } 
     
-    return array_ret;
   }
+  return array_ret;
 }
 
 
