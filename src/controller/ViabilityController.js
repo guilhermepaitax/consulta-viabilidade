@@ -81,6 +81,11 @@ module.exports = {
               viavel: (array_parecer[i].letra_parecer === 'A'),
             });
           }
+        } else {
+          cnaesResult.push({
+            cnae: cnaeCod,
+            viavel: false,
+          })
         }
       }
 
@@ -258,45 +263,168 @@ async function getParecer(inscricaoImobiliaria, uso, solicita) {
 
   var array_val = await getZonValida(inscricaoImobiliaria);
 
-  const { rows: search } = await connection.raw(`
-    SELECT DISTINCT
-      public.plan_zon_pd_pri_pdp.tp_zon,
-      public.plan_zon_pd_pri_pdp.nm_zon,
-      (st_area(st_intersection(public.cad_lote.geom, public.plan_zon_pd_pri_pdp.geom))/st_area(public.cad_lote.geom)) * 100 as porcentagem,
-      regexp_replace(public.plan_zon_pd_pri_pdp.tp_zon,'[^a-zA-Z]','','g') as letras,
-      public.plan_zon_pd_pri_pdp.lei,
-      public.plan_zon_pd_pri_pdp.lei_2	
-    FROM 
-      ((ctu.cotr_imobiliario RIGHT JOIN public.cad_lote
-      ON ctu.cotr_imobiliario.cd_lote = public.cad_lote.cd_lote) 
-      RIGHT JOIN public.plan_zon_pd_pri_pdp_join
-      ON public.cad_lote.mslink = public.plan_zon_pd_pri_pdp_join.cd_mslink_lote)
-      RIGHT JOIN public.plan_zon_pd_pri_pdp 
-      ON public.plan_zon_pd_pri_pdp_join.cd_mslink_zon = public.plan_zon_pd_pri_pdp.mslink
-    WHERE 
-      ctu.cotr_imobiliario.nu_insc_imbl='${inscricaoImobiliaria}'
-  `);
+  try {
+    const { rows: search } = await connection.raw(`
+      SELECT DISTINCT
+        public.plan_zon_pd_pri_pdp.tp_zon,
+        public.plan_zon_pd_pri_pdp.nm_zon,
+        (st_area(st_intersection(public.cad_lote.geom, public.plan_zon_pd_pri_pdp.geom))/st_area(public.cad_lote.geom)) * 100 as porcentagem,
+        regexp_replace(public.plan_zon_pd_pri_pdp.tp_zon,'[^a-zA-Z]','','g') as letras,
+        public.plan_zon_pd_pri_pdp.lei,
+        public.plan_zon_pd_pri_pdp.lei_2	
+      FROM 
+        ((ctu.cotr_imobiliario RIGHT JOIN public.cad_lote
+        ON ctu.cotr_imobiliario.cd_lote = public.cad_lote.cd_lote) 
+        RIGHT JOIN public.plan_zon_pd_pri_pdp_join
+        ON public.cad_lote.mslink = public.plan_zon_pd_pri_pdp_join.cd_mslink_lote)
+        RIGHT JOIN public.plan_zon_pd_pri_pdp 
+        ON public.plan_zon_pd_pri_pdp_join.cd_mslink_zon = public.plan_zon_pd_pri_pdp.mslink
+      WHERE 
+        ctu.cotr_imobiliario.nu_insc_imbl='${inscricaoImobiliaria}'
+    `);
 
-  if (search.length > 0) {
-    for(row of search) {
-      var ret = '';
-      var ret_uso = '';
-      var campo = `uso_${row.letras.toLocaleLowerCase()}`;
-      var tp_zo = row.tp_zon;
-      var porcentagem = row.porcentagem;
-      
-      //split no campo $campo para pegar as tres primeiras letras do zoneamento
-      var ini = campo.split('_');
-      var iniciais = ini[1].toUpperCase();
-      var num = search.length;
+    if (search.length > 0) {
+      for(row of search) {
+        var ret = '';
+        var ret_uso = '';
+        var campo = `uso_${row.letras.toLocaleLowerCase()}`;
+        var tp_zo = row.tp_zon;
+        var porcentagem = row.porcentagem;
+        
+        //split no campo $campo para pegar as tres primeiras letras do zoneamento
+        var ini = campo.split('_');
+        var iniciais = ini[1].toUpperCase();
+        var num = search.length;
 
-      if (num === 1) { //SE O LOTE FOR SÓ DE UM TIPO DE ZONEAMENTO
-        if (row.letras === '') {
+        if (num === 1) { //SE O LOTE FOR SÓ DE UM TIPO DE ZONEAMENTO
+          if (row.letras === '') {
+            
+          } else {
+
+            const { rows: row1 } = await connection.raw(`
+              SELECT DISTINCT		
+                viabilidade.plan_zon_uso.${campo},
+                public.plan_zon_pd_pri_pdp.tp_zon,
+                public.plan_zon_pd_pri_pdp.lei_2,
+                '${uso}' as uso,
+                (select desc_uso from viabilidade.plan_zon_uso where cd_classe='${uso}') as desc_uso,
+                viabilidade.plan_zon_areas.nm_zon,
+                public.plan_zon_pd_pri_pdp.lei
+              FROM 
+                ((((ctu.cotr_imobiliario LEFT JOIN public.cad_lote
+                ON ctu.cotr_imobiliario.cd_lote = public.cad_lote.cd_lote) 
+                LEFT JOIN public.plan_zon_pd_pri_pdp_join
+                ON public.cad_lote.mslink = public.plan_zon_pd_pri_pdp_join.cd_mslink_lote)
+                LEFT JOIN public.plan_zon_pd_pri_pdp 
+                ON public.plan_zon_pd_pri_pdp_join.cd_mslink_zon = public.plan_zon_pd_pri_pdp.mslink)
+                LEFT JOIN viabilidade.plan_zon_uso
+                ON  public.plan_zon_pd_pri_pdp.lei_2=viabilidade.plan_zon_uso.lei)  
+                LEFT JOIN viabilidade.plan_zon_areas
+                ON (public.plan_zon_pd_pri_pdp.lei=viabilidade.plan_zon_areas.lei
+                AND public.plan_zon_pd_pri_pdp.tp_zon=viabilidade.plan_zon_areas.tp_zon)
+              WHERE 
+                ctu.cotr_imobiliario.nu_insc_imbl='${inscricaoImobiliaria}'
+                AND viabilidade.plan_zon_uso.cd_classe='${uso}'
+                AND public.plan_zon_pd_pri_pdp.tp_zon='${tp_zo}'
+            `);
+    
+            //1º split retorna a letra do tipo de adequacao na primeira parte do split, ou seja, 
+            //no $parecer_array[0](ex: A) e as demais parte(s) ($parecer_array[1],etc...) as limitacoes e usos (ex: 10-p)
+            var parecer_array = row1[0][campo].split('-');				
+            var parecer_texto = parecer_array[0];
+
+            const { rows: row2 } = await connection.raw(`
+              SELECT viabilidade.plan_zon_adeq.desc_adeq
+              FROM viabilidade.plan_zon_adeq
+              WHERE viabilidade.plan_zon_adeq.tp_adeq='${parecer_texto}'
+            `);
+            
+            //retorna a adequecao das areas (ex: Tolerável)	
+            var adequacao = row2[0].desc_adeq;
+            
+            var limitacao = parecer_array;
+            var complemento_adeq = '';
+            var nums = '';
+
+            for (let i = 0; i < limitacao.length; i++) {  //percorre o array de retorno do 2º split
+              
+              if (i !== 0) { //ignora a posicao 0 pois é o parecer
+                if (i > 1) {
+                  complemento_adeq += `/${limitacao[i]}`;
+                } else {
+                  complemento_adeq += limitacao[i];
+                }
+                if (limitacao[i] !== '') { //se o array nao for vazio busca limitacoes e/ou usos
+                  var aux = limitacao[i];
+                  
+                  if (!isNaN(aux) || (aux === '*')) { //se é nro => consulta na tabela plan_zon_adeq_le
+                    if (nums === '') {
+                        nums += aux;
+                    } else {
+                        nums += `,${aux}`;
+                    }
+                    const { rows: search3 } = await connection.raw(`
+                      SELECT viabilidade.plan_zon_adeq_le.desc_le, viabilidade.plan_zon_adeq_le.tp_le
+                      FROM viabilidade.plan_zon_adeq_le
+                      WHERE viabilidade.plan_zon_adeq_le.tp_le='${aux}'AND lei='${row1[0].lei_2}'
+                    `);
+                          
+                    var row4 = search3[0];
+
+                    if (ret !== '') {
+                      ret += `. ${row4.tp_le} - ${row4.desc_le}`; 
+                    } else {
+                      ret += `${row4.tp_le} - ${row4.desc_le}`;
+                    }
+
+                  } else { //senao é nro=> consulta na tabela plan_zon_adequacao_uso
+                    const { rows: search4 } = await connection.raw(`
+                      SELECT viabilidade.plan_zon_adequacao_uso.desc_adeq_uso,
+                      viabilidade.plan_zon_adequacao_uso.tp_adeq_uso
+                      FROM viabilidade.plan_zon_adequacao_uso
+                      WHERE viabilidade.plan_zon_adequacao_uso.tp_adeq_uso='${aux}'
+                    `);
+
+                    var row5 = search4[0];
+                    ret_uso += row5.desc_adeq_uso;
+                  }
+                }
+              }
+            }
+
+            var tu = '';
+            if (ret_uso !== ''){
+              tu = row5.tp_adeq_uso;
+            }
+
+            array_ret[cont_tmp] = {
+              parecer: adequacao,
+              porcentagem,
+              limitacao: ret,
+              uso: ret_uso,
+              tp_uso: tu,
+              nm_zon: row1[0].tp_zon,
+              zon: row1[0].nm_zon,
+              comp_adeq_uso: complemento_adeq,
+              lei_2: row1[0].lei_2,
+              lei: row1[0].lei,
+              letra_parecer: parecer_texto,
+              numeros_parecer: nums,
+              cd_sv: array_val[0].cd_sv,
+              marcacao: '1',
+              status: '1',
+            };
+            cont_tmp++;
+          }
           
-        } else {
+        } else { //SE O LOTE FOR DE MAIS DE UM TIPO DE ZONEAMENTO FAZ OS CÁLCULOS PARA O PARECER FINAL	
+          //split no campo $campo para pegar as tres primeiras letras do zoneamento
+          var ini = campo.split('_');
+          var iniciais = ini[1].toUpperCase();
 
-          const { rows: row1 } = await connection.raw(`
-            SELECT DISTINCT		
+          //retorna os usos de adequação da tabela plan_zon_uso  (ex: A-10-p)
+          const { rows: search5 } = await connection.raw(`
+            SELECT DISTINCT --a unica alteração foi colocar o distinct 			
               viabilidade.plan_zon_uso.${campo},
               public.plan_zon_pd_pri_pdp.tp_zon,
               public.plan_zon_pd_pri_pdp.lei_2,
@@ -318,256 +446,138 @@ async function getParecer(inscricaoImobiliaria, uso, solicita) {
               AND public.plan_zon_pd_pri_pdp.tp_zon=viabilidade.plan_zon_areas.tp_zon)
             WHERE 
               ctu.cotr_imobiliario.nu_insc_imbl='${inscricaoImobiliaria}'
+              --AND viabilidade.plan_zon_uso.cd_secao='${solicita}' 
               AND viabilidade.plan_zon_uso.cd_classe='${uso}'
               AND public.plan_zon_pd_pri_pdp.tp_zon='${tp_zo}'
           `);
-  
-          //1º split retorna a letra do tipo de adequacao na primeira parte do split, ou seja, 
-          //no $parecer_array[0](ex: A) e as demais parte(s) ($parecer_array[1],etc...) as limitacoes e usos (ex: 10-p)
-          var parecer_array = row1[0][campo].split('-');				
-          var parecer_texto = parecer_array[0];
 
-          const { rows: row2 } = await connection.raw(`
-            SELECT viabilidade.plan_zon_adeq.desc_adeq
-            FROM viabilidade.plan_zon_adeq
-            WHERE viabilidade.plan_zon_adeq.tp_adeq='${parecer_texto}'
-          `);
+          var compara = '';
+          if (array_val[0].status === '1') {//é pq é para marcar algum
+            compara = array_val[0].tp_zon;
+          } //senao volta todos, ou seja, nao marca nada
           
-          //retorna a adequecao das areas (ex: Tolerável)	
-          var adequacao = row2[0].desc_adeq;
-          
-          var limitacao = parecer_array;
-          var complemento_adeq = '';
-          var nums = '';
-
-          for (let i = 0; i < limitacao.length; i++) {  //percorre o array de retorno do 2º split
+          for (row11 of search5) {
+            var ret = '';
+            var ret_uso = '';
             
-            if (i !== 0) { //ignora a posicao 0 pois é o parecer
-              if (i > 1) {
-                complemento_adeq += `/${limitacao[i]}`;
-              } else {
-                complemento_adeq += limitacao[i];
-              }
-              if (limitacao[i] !== '') { //se o array nao for vazio busca limitacoes e/ou usos
-                var aux = limitacao[i];
+            if (row11[campo] === '0' || row11[campo] === '' || row11[campo] === null) {
+              array_ret[cont_tmp] = {
+                parecer: 'Proibido o que requer quanto o Zoneamento',
+                porcentagem,
+                limitacao: '',
+                uso: 'Proibido o que requer quanto o Zoneamento',
+                tp_uso: '',
+                nm_zon: row11.tp_zon,
+                zon: row11.nm_zon,
+                comp_adeq_uso: '',
+                lei_2: row11.lei_2,
+                lei: row11.lei,
+                letra_parecer: 'P',
+                numeros_parecer: '',
+                cd_sv: array_val[0].cd_sv,
+                marcacao: '',
+                status: '1',
+              };
+              cont_tmp++;
+            } else {
+                //1º split retorna a letra do tipo de adequacao na primeira parte do split, ou seja, 
+                //no $parecer_array[0](ex: A) e as demais parte(s) ($parecer_array[1],etc...) as limitacoes e usos (ex: 10-p)
+                var parecer_array = row11[campo].split('-');		
+                var parecer_texto = parecer_array[0];
+
+                const { rows: search6 } = await connection.raw(`
+                  SELECT viabilidade.plan_zon_adeq.desc_adeq
+                  FROM viabilidade.plan_zon_adeq
+                  WHERE viabilidade.plan_zon_adeq.tp_adeq='${parecer_texto}'
+                `);
+
+                var row_ = search6[0];
+                var adequacao = row_.desc_adeq;
                 
-                if (!isNaN(aux) || (aux === '*')) { //se é nro => consulta na tabela plan_zon_adeq_le
-                  if (nums === '') {
-                      nums += aux;
-                  } else {
-                      nums += `,${aux}`;
-                  }
-                  const { rows: search3 } = await connection.raw(`
-                    SELECT viabilidade.plan_zon_adeq_le.desc_le, viabilidade.plan_zon_adeq_le.tp_le
-                    FROM viabilidade.plan_zon_adeq_le
-                    WHERE viabilidade.plan_zon_adeq_le.tp_le='${aux}'AND lei='${row1[0].lei_2}'
-                  `);
-                        
-                  var row4 = search3[0];
+                var limitacao = parecer_array;
+                var complemento_adeq = '';
+                var nums = '';
 
-                  if (ret !== '') {
-                    ret += `. ${row4.tp_le} - ${row4.desc_le}`; 
-                  } else {
-                    ret += `${row4.tp_le} - ${row4.desc_le}`;
-                  }
+                for (let i = 0; i < limitacao.length; i++) {  //percorre o array de retorno do 2º split
+                  if (i !== 0){ //ignora a posicao 0 pois é o parecer
+                    if (i > 1) {
+                      complemento_adeq += `/${limitacao[i]}`;
+                    } else {
+                      complemento_adeq += limitacao[i];
+                    }
+                    if (limitacao[i] !== '') { //se o array nao for vazio busca limitacoes e/ou usos
+                      var aux = limitacao[i];
+                    
+                      if (!isNaN(aux) || (aux === '*')) { //se é nro => consulta na tabela plan_zon_adeq_le
 
-                } else { //senao é nro=> consulta na tabela plan_zon_adequacao_uso
-                  const { rows: search4 } = await connection.raw(`
-                    SELECT viabilidade.plan_zon_adequacao_uso.desc_adeq_uso,
-                    viabilidade.plan_zon_adequacao_uso.tp_adeq_uso
-                    FROM viabilidade.plan_zon_adequacao_uso
-                    WHERE viabilidade.plan_zon_adequacao_uso.tp_adeq_uso='${aux}'
-                  `);
+                        if (nums === '') {
+                          nums += aux;
+                        } else {
+                          nums += `,${aux}`;
+                        }
 
-                  var row5 = search4[0];
-                  ret_uso += row5.desc_adeq_uso;
-                }
-              }
-            }
-          }
+                        const { rows: sql_busca4 } = await connection.raw(`
+                          SELECT viabilidade.plan_zon_adeq_le.desc_le, viabilidade.plan_zon_adeq_le.tp_le
+                          FROM viabilidade.plan_zon_adeq_le
+                          WHERE viabilidade.plan_zon_adeq_le.tp_le='${aux}'AND lei='${row11.lei_2}'
+                        `);
+                              
+                        var row4 = sql_busca4[0];
 
-          var tu = '';
-          if (ret_uso !== ''){
-            tu = row5.tp_adeq_uso;
-          }
+                        if (ret !== '') {
+                          ret += `. ${row4.tp_le} - ${row4.desc_le}`; 
+                        } else {
+                          ret += `${row4.tp_le} - ${row4.desc_le}`;
+                        }
+                      } else { //senao é nro=> consulta na tabela plan_zon_adequacao_uso
+                        const { rows: search4 } = await connection.raw(`
+                          SELECT viabilidade.plan_zon_adequacao_uso.desc_adeq_uso,
+                          viabilidade.plan_zon_adequacao_uso.tp_adeq_uso
+                          FROM viabilidade.plan_zon_adequacao_uso
+                          WHERE viabilidade.plan_zon_adequacao_uso.tp_adeq_uso='${aux}'
+                        `);
 
-          array_ret[cont_tmp] = {
-            parecer: adequacao,
-            porcentagem,
-            limitacao: ret,
-            uso: ret_uso,
-            tp_uso: tu,
-            nm_zon: row1[0].tp_zon,
-            zon: row1[0].nm_zon,
-            comp_adeq_uso: complemento_adeq,
-            lei_2: row1[0].lei_2,
-            lei: row1[0].lei,
-            letra_parecer: parecer_texto,
-            numeros_parecer: nums,
-            cd_sv: array_val[0].cd_sv,
-            marcacao: '1',
-            status: '1',
-          };
-          cont_tmp++;
-        }
-        
-      } else { //SE O LOTE FOR DE MAIS DE UM TIPO DE ZONEAMENTO FAZ OS CÁLCULOS PARA O PARECER FINAL	
-        //split no campo $campo para pegar as tres primeiras letras do zoneamento
-        var ini = campo.split('_');
-        var iniciais = ini[1].toUpperCase();
-
-        //retorna os usos de adequação da tabela plan_zon_uso  (ex: A-10-p)
-        const { rows: search5 } = await connection.raw(`
-          SELECT DISTINCT --a unica alteração foi colocar o distinct 			
-            viabilidade.plan_zon_uso.${campo},
-            public.plan_zon_pd_pri_pdp.tp_zon,
-            public.plan_zon_pd_pri_pdp.lei_2,
-            '${uso}' as uso,
-            (select desc_uso from viabilidade.plan_zon_uso where cd_classe='${uso}') as desc_uso,
-            viabilidade.plan_zon_areas.nm_zon,
-            public.plan_zon_pd_pri_pdp.lei
-          FROM 
-            ((((ctu.cotr_imobiliario LEFT JOIN public.cad_lote
-            ON ctu.cotr_imobiliario.cd_lote = public.cad_lote.cd_lote) 
-            LEFT JOIN public.plan_zon_pd_pri_pdp_join
-            ON public.cad_lote.mslink = public.plan_zon_pd_pri_pdp_join.cd_mslink_lote)
-            LEFT JOIN public.plan_zon_pd_pri_pdp 
-            ON public.plan_zon_pd_pri_pdp_join.cd_mslink_zon = public.plan_zon_pd_pri_pdp.mslink)
-            LEFT JOIN viabilidade.plan_zon_uso
-            ON  public.plan_zon_pd_pri_pdp.lei_2=viabilidade.plan_zon_uso.lei)  
-            LEFT JOIN viabilidade.plan_zon_areas
-            ON (public.plan_zon_pd_pri_pdp.lei=viabilidade.plan_zon_areas.lei
-            AND public.plan_zon_pd_pri_pdp.tp_zon=viabilidade.plan_zon_areas.tp_zon)
-          WHERE 
-            ctu.cotr_imobiliario.nu_insc_imbl='${inscricaoImobiliaria}'
-            --AND viabilidade.plan_zon_uso.cd_secao='${solicita}' 
-            AND viabilidade.plan_zon_uso.cd_classe='${uso}'
-            AND public.plan_zon_pd_pri_pdp.tp_zon='${tp_zo}'
-        `);
-
-        var compara = '';
-        if (array_val[0].status === '1') {//é pq é para marcar algum
-          compara = array_val[0].tp_zon;
-        } //senao volta todos, ou seja, nao marca nada
-        
-        for (row11 of search5) {
-          var ret = '';
-          var ret_uso = '';
-          
-          if (row11[campo] === '0' || row11[campo] === '' || row11[campo] === null) {
-            array_ret[cont_tmp] = {
-              parecer: 'Proibido o que requer quanto o Zoneamento',
-              porcentagem,
-              limitacao: '',
-              uso: 'Proibido o que requer quanto o Zoneamento',
-              tp_uso: '',
-              nm_zon: row11.tp_zon,
-              zon: row11.nm_zon,
-              comp_adeq_uso: '',
-              lei_2: row11.lei_2,
-              lei: row11.lei,
-              letra_parecer: 'P',
-              numeros_parecer: '',
-              cd_sv: array_val[0].cd_sv,
-              marcacao: '',
-              status: '1',
-            };
-            cont_tmp++;
-          } else {
-              //1º split retorna a letra do tipo de adequacao na primeira parte do split, ou seja, 
-              //no $parecer_array[0](ex: A) e as demais parte(s) ($parecer_array[1],etc...) as limitacoes e usos (ex: 10-p)
-              var parecer_array = row11[campo].split('-');		
-              var parecer_texto = parecer_array[0];
-
-              const { rows: search6 } = await connection.raw(`
-                SELECT viabilidade.plan_zon_adeq.desc_adeq
-                FROM viabilidade.plan_zon_adeq
-                WHERE viabilidade.plan_zon_adeq.tp_adeq='${parecer_texto}'
-              `);
-
-              var row_ = search6[0];
-              var adequacao = row_.desc_adeq;
-              
-              var limitacao = parecer_array;
-              var complemento_adeq = '';
-              var nums = '';
-
-              for (let i = 0; i < limitacao.length; i++) {  //percorre o array de retorno do 2º split
-                if (i !== 0){ //ignora a posicao 0 pois é o parecer
-                  if (i > 1) {
-                    complemento_adeq += `/${limitacao[i]}`;
-                  } else {
-                    complemento_adeq += limitacao[i];
-                  }
-                  if (limitacao[i] !== '') { //se o array nao for vazio busca limitacoes e/ou usos
-                    var aux = limitacao[i];
-                  
-                    if (!isNaN(aux) || (aux === '*')) { //se é nro => consulta na tabela plan_zon_adeq_le
-
-                      if (nums === '') {
-                        nums += aux;
-                      } else {
-                        nums += `,${aux}`;
+                        var row5 = search4[0];
+                        ret_uso += row5.desc_adeq_uso;
                       }
-
-                      const { rows: sql_busca4 } = await connection.raw(`
-                        SELECT viabilidade.plan_zon_adeq_le.desc_le, viabilidade.plan_zon_adeq_le.tp_le
-                        FROM viabilidade.plan_zon_adeq_le
-                        WHERE viabilidade.plan_zon_adeq_le.tp_le='${aux}'AND lei='${row11.lei_2}'
-                      `);
-                            
-                      var row4 = sql_busca4[0];
-
-                      if (ret !== '') {
-                        ret += `. ${row4.tp_le} - ${row4.desc_le}`; 
-                      } else {
-                        ret += `${row4.tp_le} - ${row4.desc_le}`;
-                      }
-                    } else { //senao é nro=> consulta na tabela plan_zon_adequacao_uso
-                      const { rows: search4 } = await connection.raw(`
-                        SELECT viabilidade.plan_zon_adequacao_uso.desc_adeq_uso,
-                        viabilidade.plan_zon_adequacao_uso.tp_adeq_uso
-                        FROM viabilidade.plan_zon_adequacao_uso
-                        WHERE viabilidade.plan_zon_adequacao_uso.tp_adeq_uso='${aux}'
-                      `);
-
-                      var row5 = search4[0];
-                      ret_uso += row5.desc_adeq_uso;
                     }
                   }
                 }
-              }
 
-              var tu = '';
-              if (ret_uso !== ''){
-                tu = row5.tp_adeq_uso;
-              }
+                var tu = '';
+                if (ret_uso !== ''){
+                  tu = row5.tp_adeq_uso;
+                }
 
-              array_ret[cont_tmp] = {
-                parecer: adequacao,
-                porcentagem,
-                limitacao: ret,
-                uso: ret_uso,
-                tp_uso: tu,
-                nm_zon: row11.tp_zon,
-                zon: row11.nm_zon,
-                comp_adeq_uso: complemento_adeq,
-                lei_2: row11.lei_2,
-                lei: row11.lei,
-                letra_parecer: parecer_texto,
-                numeros_parecer: nums,
-                cd_sv: '',
-                marcacao: '',
-                status: array_val[0].status,
-              };
-              cont_tmp++;
+                array_ret[cont_tmp] = {
+                  parecer: adequacao,
+                  porcentagem,
+                  limitacao: ret,
+                  uso: ret_uso,
+                  tp_uso: tu,
+                  nm_zon: row11.tp_zon,
+                  zon: row11.nm_zon,
+                  comp_adeq_uso: complemento_adeq,
+                  lei_2: row11.lei_2,
+                  lei: row11.lei,
+                  letra_parecer: parecer_texto,
+                  numeros_parecer: nums,
+                  cd_sv: '',
+                  marcacao: '',
+                  status: array_val[0].status,
+                };
+                cont_tmp++;
+              
+            }
             
-          }
-          
-        } //fim do while( $row1 = $bd2->getNextRow()
-      }
-    } 
-    
+          } //fim do while( $row1 = $bd2->getNextRow()
+        }
+      } 
+      
+    }
+
+  } catch (error) {
+    return array_ret;
   }
   return array_ret;
 }
